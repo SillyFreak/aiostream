@@ -8,7 +8,7 @@ from ..aiter_utils import anext
 from ..context_utils import AsyncExitStack
 from ..core import operator, streamcontext
 
-__all__ = ['chain', 'zip', 'map', 'merge']
+__all__ = ['chain', 'zip', 'map', 'merge', 'concatmap', 'flatmap', 'switchmap']
 
 
 @operator(pipable=True)
@@ -184,40 +184,26 @@ async def map(source, func, *more_sources):
 
 
 @operator(pipable=True)
-async def merge(*sources):
+def merge(*sources):
     """Merge several asynchronous sequences together.
 
     All the sequences are iterated simultaneously and their elements
     are forwarded as soon as they're available. The generation continues
     until all the sequences are exhausted.
     """
-    streamers = {}
+    return flat.raw(create.iterate.raw(sources))
 
-    async def cleanup():
-        for task in streamers:
-            task.cancel()
 
-    async with AsyncExitStack() as stack:
-        # Add cleanup
-        stack.callback(cleanup)
-        # Schedule first anext
-        for source in sources:
-            streamer = await stack.enter_context(streamcontext(source))
-            task = asyncio.ensure_future(anext(streamer))
-            streamers[task] = streamer
-        # Loop over events
-        while streamers:
-            done, pending = await asyncio.wait(
-                list(streamers), return_when="FIRST_COMPLETED")
-            # Loop over items
-            for task in done:
-                try:
-                    yield task.result()
-                # End of stream
-                except StopAsyncIteration:
-                    streamers.pop(task)
-                # Schedule next anext
-                else:
-                    streamer = streamers.pop(task)
-                    task = asyncio.ensure_future(anext(streamer))
-                    streamers[task] = streamer
+@operator(pipable=True)
+def concatmap(source, func):
+    return concat.raw(map.raw(source, func))
+
+
+@operator(pipable=True)
+def flatmap(source, func):
+    return flat.raw(map.raw(source, func))
+
+
+@operator(pipable=True)
+def switchmap(source, func):
+    return switch.raw(map.raw(source, func))
