@@ -8,7 +8,7 @@ from ..aiter_utils import anext
 from ..context_utils import AsyncExitStack
 from ..core import operator, streamcontext
 
-__all__ = ['chain', 'zip', 'map', 'merge', 'concatmap', 'flatmap', 'switchmap']
+__all__ = ['chain', 'zip', 'map', 'merge', 'concat', 'flatten', 'switch', 'concatmap', 'flatmap', 'switchmap']
 
 
 @operator(pipable=True)
@@ -28,7 +28,7 @@ async def concat(source):
 
 
 @operator(pipable=True)
-async def flat(source):
+async def flatten(source):
     """Given an asynchronous sequence of sequences, iterate over the element
     sequences in parallel.
 
@@ -216,7 +216,7 @@ def merge(*sources):
     are forwarded as soon as they're available. The generation continues
     until all the sequences are exhausted.
     """
-    return flat.raw(create.iterate.raw(sources))
+    return flatten.raw(create.iterate.raw(sources))
 
 
 @operator(pipable=True)
@@ -244,7 +244,7 @@ def flatmap(source, func, *more_sources):
     iterated in parallel, yielding their elements interleaved as they arrive.
     Errors raised in a source or output sequence are propagated.
     """
-    return flat.raw(map.raw(source, func, *more_sources))
+    return flatten.raw(map.raw(source, func, *more_sources))
 
 
 @operator(pipable=True)
