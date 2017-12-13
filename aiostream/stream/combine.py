@@ -167,7 +167,7 @@ async def map(source, func, *more_sources):
     sequence is exhausted. The function can either be synchronous or
     asynchronous.
 
-    Note: the different sequences are awaited in parrallel, so that their
+    Note: the different sequences are awaited in parallel, so that their
     waiting times don't add up.
     """
     iscorofunc = asyncio.iscoroutinefunction(func)
