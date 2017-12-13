@@ -42,42 +42,47 @@ async def flat(source):
         for task in streamers:
             task.cancel()
 
-    async with AsyncExitStack() as stack:
-        # Add cleanup
-        stack.callback(cleanup)
-        # Initialize
+    def schedule(streamer):
+        task = asyncio.ensure_future(anext(streamer))
+        streamers[task] = streamer
+
+    async def enter(stack, source):
         streamer = await stack.enter_context(streamcontext(source))
-        streamer_task = asyncio.ensure_future(anext(streamer))
-        streamers[streamer_task] = streamer
-        # Loop over events
+        schedule(streamer)
+        return streamer
+
+    async def completed():
         while streamers:
-            done, _pending = await asyncio.wait(
+            done, _ = await asyncio.wait(
                 list(streamers), return_when="FIRST_COMPLETED")
-
             for task in done:
-                try:
-                    result = task.result()
-                except StopAsyncIteration:
-                    # End of stream
-                    streamers.pop(task)
-                    continue
+                yield streamers.pop(task), task.result
 
-                if task is streamer_task:
-                    streamers.pop(task)
-                    # Setup a new source
-                    substreamer = await stack.enter_context(streamcontext(result))
-                    substreamer_task = asyncio.ensure_future(anext(substreamer))
-                    streamers[substreamer_task] = substreamer
-                    # Schedule next anext
-                    streamer_task = asyncio.ensure_future(anext(streamer))
-                    streamers[streamer_task] = streamer
-                else:
-                    substreamer = streamers.pop(task)
-                    # Simply yield a result
-                    yield result
-                    # Schedule next anext
-                    substreamer_task = asyncio.ensure_future(anext(substreamer))
-                    streamers[substreamer_task] = substreamer
+    # Safe context
+    async with AsyncExitStack() as stack:
+        stack.callback(cleanup)
+
+        # Initialize
+        main_streamer = await enter(stack, source)
+
+        # Loop over events
+        async for streamer, getter in completed():
+            # Get result
+            try:
+                result = getter()
+            # End of stream
+            except StopAsyncIteration:
+                continue
+
+            # Setup a new source
+            if streamer is main_streamer:
+                await enter(stack, result)
+            # Simply yield the result
+            else:
+                yield result
+
+            # Re-schedule streamer
+            schedule(streamer)
 
 
 @operator(pipable=True)
