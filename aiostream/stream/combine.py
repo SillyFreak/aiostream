@@ -195,15 +195,15 @@ def merge(*sources):
 
 
 @operator(pipable=True)
-def concatmap(source, func):
-    return concat.raw(map.raw(source, func))
+def concatmap(source, func, *more_sources):
+    return concat.raw(map.raw(source, func, *more_sources))
 
 
 @operator(pipable=True)
-def flatmap(source, func):
-    return flat.raw(map.raw(source, func))
+def flatmap(source, func, *more_sources):
+    return flat.raw(map.raw(source, func, *more_sources))
 
 
 @operator(pipable=True)
-def switchmap(source, func):
-    return switch.raw(map.raw(source, func))
+def switchmap(source, func, *more_sources):
+    return switch.raw(map.raw(source, func, *more_sources))
