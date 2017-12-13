@@ -13,6 +13,12 @@ __all__ = ['chain', 'zip', 'map', 'merge', 'concatmap', 'flatmap', 'switchmap']
 
 @operator(pipable=True)
 async def concat(source):
+    """Given an asynchronous sequence of sequences, iterate over the element
+    sequences in order.
+
+    After one element sequence is exhausted, the next sequence is generated.
+    Errors raised in the source or an element sequence are propagated.
+    """
     async with streamcontext(source) as streamer:
         async for iterator in streamer:
             subsource = create.iterate.raw(iterator)
@@ -23,6 +29,13 @@ async def concat(source):
 
 @operator(pipable=True)
 async def flat(source):
+    """Given an asynchronous sequence of sequences, iterate over the element
+    sequences in parallel.
+
+    Element sequences are generated eagerly and iterated in parallel, yielding
+    their elements interleaved as they arrive. Errors raised in the source or
+    an element sequence are propagated.
+    """
     streamers = {}
 
     async def cleanup():
@@ -69,6 +82,13 @@ async def flat(source):
 
 @operator(pipable=True)
 async def switch(source):
+    """Given an asynchronous sequence of sequences, iterate over the most
+    recent element sequence.
+
+    Element sequences are generated eagerly, and closed once they are
+    superseded by a more recent sequence. Errors raised in the source or an
+    element sequence (that was not already closed) are propagated.
+    """
     streamer_task = None
     substreamer_task = None
 
@@ -196,14 +216,40 @@ def merge(*sources):
 
 @operator(pipable=True)
 def concatmap(source, func, *more_sources):
+    """Apply a given function that returns a sequence to the elements of one or
+    several asynchronous sequences, and iterate over the returned sequences in
+    order.
+
+    The function is applied as described in `map`, and can return an iterable
+    or an asynchronous sequence. After one sequence is exhausted, the next
+    sequence is generated. Errors raised in a source or output sequence are
+    propagated.
+    """
     return concat.raw(map.raw(source, func, *more_sources))
 
 
 @operator(pipable=True)
 def flatmap(source, func, *more_sources):
+    """Apply a given function that returns a sequence to the elements of one or
+    several asynchronous sequences, and iterate over the returned sequences in
+    parallel.
+
+    The function is applied as described in `map`, and can return an iterable
+    or an asynchronous sequence. Sequences are generated eagerly and
+    iterated in parallel, yielding their elements interleaved as they arrive.
+    Errors raised in a source or output sequence are propagated.
+    """
     return flat.raw(map.raw(source, func, *more_sources))
 
 
 @operator(pipable=True)
 def switchmap(source, func, *more_sources):
+    """Apply a given function that returns a sequence to the elements of one or
+    several asynchronous sequences, and iterate over the most recent sequence.
+
+    The function is applied as described in `map`, and can return an iterable
+    or an asynchronous sequence. Sequences are generated eagerly, and closed
+    once they are superseded by a more recent sequence. Errors raised in a
+    source or output sequence (that was not already closed) are propagated.
+    """
     return switch.raw(map.raw(source, func, *more_sources))
