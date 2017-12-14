@@ -8,7 +8,8 @@ from ..aiter_utils import anext
 from ..context_utils import AsyncExitStack
 from ..core import operator, streamcontext
 
-__all__ = ['chain', 'zip', 'map', 'merge', 'concat', 'flatten', 'switch', 'concatmap', 'flatmap', 'switchmap']
+__all__ = ['chain', 'zip', 'map', 'merge', 'concat', 'flatten', 'switch',
+           'concatmap', 'flatmap', 'switchmap']
 
 
 @operator(pipable=True)
@@ -28,28 +29,23 @@ async def concat(source):
 
 
 @operator(pipable=True)
-async def flatten(source):
-    """Given an asynchronous sequence of sequences, iterate over the element
-    sequences in parallel.
-
-    Element sequences are generated eagerly and iterated in parallel, yielding
-    their elements interleaved as they arrive. Errors raised in the source or
-    an element sequence are propagated.
-    """
+async def base_combine(source, switch=False):
     streamers = {}
-
-    async def cleanup():
-        for task in streamers:
-            task.cancel()
-
-    def schedule(streamer):
-        task = asyncio.ensure_future(anext(streamer))
-        streamers[task] = streamer
 
     async def enter(stack, source):
         streamer = await stack.enter_context(streamcontext(source))
         schedule(streamer)
         return streamer
+
+    async def cleanup():
+        for task, streamer in streamers.items():
+            task.cancel()
+            await streamer.aclose()
+        streamers.clear()
+
+    def schedule(streamer):
+        task = asyncio.ensure_future(anext(streamer))
+        streamers[task] = streamer
 
     async def completed():
         while streamers:
@@ -67,12 +63,17 @@ async def flatten(source):
 
         # Loop over events
         async for streamer, getter in completed():
+
             # Get result
             try:
                 result = getter()
             # End of stream
             except StopAsyncIteration:
                 continue
+
+            # Switch mecanism
+            if switch and streamer is main_streamer:
+                await cleanup()
 
             # Setup a new source
             if streamer is main_streamer:
@@ -86,7 +87,19 @@ async def flatten(source):
 
 
 @operator(pipable=True)
-async def switch(source):
+def flatten(source):
+    """Given an asynchronous sequence of sequences, iterate over the element
+    sequences in parallel.
+
+    Element sequences are generated eagerly and iterated in parallel, yielding
+    their elements interleaved as they arrive. Errors raised in the source or
+    an element sequence are propagated.
+    """
+    return base_combine.raw(source, switch=False)
+
+
+@operator(pipable=True)
+def switch(source):
     """Given an asynchronous sequence of sequences, iterate over the most
     recent element sequence.
 
@@ -94,55 +107,7 @@ async def switch(source):
     superseded by a more recent sequence. Errors raised in the source or an
     element sequence (that was not already closed) are propagated.
     """
-    streamer_task = None
-    substreamer_task = None
-
-    async def cleanup():
-        if streamer_task:
-            streamer_task.cancel()
-        if substreamer_task:
-            substreamer_task.cancel()
-
-    async with AsyncExitStack() as stack:
-        # Add cleanup
-        stack.callback(cleanup)
-        # Initialize
-        streamer = await stack.enter_context(streamcontext(source))
-        streamer_task = asyncio.ensure_future(anext(streamer))
-        substreamer = None
-        # Loop over events
-        while streamer_task or substreamer_task:
-            wait_tasks = filter(None, (streamer_task, substreamer_task))
-            done, _ = await asyncio.wait(wait_tasks, return_when="FIRST_COMPLETED")
-
-            # Substreamer event
-            if substreamer_task in done:
-                try:
-                    yield substreamer_task.result()
-                except StopAsyncIteration:
-                    # await substreamer.aclose()
-                    await substreamer.__aexit__(None, None, None)
-                    substreamer_task = None
-                else:
-                    substreamer_task = asyncio.ensure_future(anext(substreamer))
-
-            # Streamer event
-            if streamer_task in done:
-                try:
-                    subsource = streamer_task.result()
-                except StopAsyncIteration:
-                    streamer_task = None
-                else:
-                    # Clean up
-                    if substreamer:
-                        # await substreamer.aclose()
-                        await substreamer.__aexit__(None, None, None)
-                    if substreamer_task:
-                        substreamer_task.cancel()
-                    # New substream
-                    streamer_task = asyncio.ensure_future(anext(streamer))
-                    substreamer = await stack.enter_context(streamcontext(subsource))
-                    substreamer_task = asyncio.ensure_future(anext(substreamer))
+    return base_combine.raw(source, switch=True)
 
 
 @operator(pipable=True)
