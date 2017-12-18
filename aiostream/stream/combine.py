@@ -22,8 +22,8 @@ async def chain(*sources):
     """
     for source in sources:
         async with streamcontext(source) as streamer:
-                async for item in streamer:
-                    yield item
+            async for item in streamer:
+                yield item
 
 
 @operator(pipable=True)
